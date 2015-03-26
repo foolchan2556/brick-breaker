@@ -1,0 +1,579 @@
+﻿<!DOCTYPE HTML>
+<html lang="en">
+    
+    <head>
+        <meta charset="UTF-8">
+        <title>打砖块</title>
+        <style type="text/css" media="screen">
+* {
+    margin: 0;
+    padding: 0;
+}
+body {
+    width: 1047px;
+    margin: 0 auto;
+    position:relative;
+}
+#stage {
+    border: 1px solid black;
+    background:url(images/bg.jpg);
+}
+#main {
+    width:1047px;
+    height:650px;
+    position:absolute;
+    text-align:center;
+    background:url(images/bg.jpg);
+    border:1px solid black;
+}
+#main img {
+    margin-top:100px;
+}
+#Button1 {
+    display:block;
+    width:300px;
+    height:50px;
+    background:url(images/Button.png)no-repeat center;
+    border:none;
+    font-size:36px;
+    font-weight:bold;
+    color:#FFFFFF;
+    cursor:pointer;
+    line-height: 44px;
+    position:absolute;
+    left:36%;
+    top:50%;
+}
+#Button1:hover {
+    color:gold;
+    left:36.2%;
+    top:50.2%;
+}
+#Button2 {
+    display:block;
+    width:300px;
+    height:50px;
+    background:url(images/Button.png)no-repeat center;
+    border:none;
+    font-size:36px;
+    font-weight:bold;
+    color:#FFFFFF;
+    cursor:pointer;
+    line-height: 44px;
+    position:absolute;
+    left:36%;
+    top:65%;
+}
+#Button2:hover {
+    color:gold;
+    left:36.2%;
+    top:65.2%;
+}
+</style>
+<script type="text/javascript" charset="utf-8">
+
+var images = {};			//各种图形
+var blockArray = [];		//砖块的原型
+var CONST = function () {};
+CONST.FPS = 10;
+var canvas = null;			//画布的原型
+var ctx = null;
+var canvasWidth = 0;
+var canvasHeight = 0;
+var blockWidth = 0;
+var blockHeight = 0;
+var isProtected = 0;		//是否有防护网
+var hit = 0;				//小球撞击挡板次数
+var ball = null;			//小球的原型
+var baffle = null;			//挡板的原型
+var bg = null;
+var trace;
+var interval;
+
+function strikePoint(p, r) {
+    var flag = false;
+    if ((p.x >= r.x && p.x <= r.x + r.width) && (p.y >= r.y && p.y <= r.y + r.height)) {
+        flag = true;
+    }
+    return flag;
+}
+
+function strikeOn(r1, r2) {	//判断两个物体是否相碰
+    var rect = {
+        x: r2.x,
+        y: r2.y,
+        width: r2.width,
+        height: r2.height
+    }
+    var flag = 0;
+    if (
+    strikePoint({
+        x: r1.x,
+        y: r1.y
+    }, rect) || strikePoint({
+        x: r1.x + r1.width,
+        y: r1.y
+    }, rect) || strikePoint({
+        x: r1.x,
+        y: r1.y + r1.height
+    }, rect) || strikePoint({
+        x: r1.x + r1.width,
+        y: r1.y + r1.height
+    }, rect)) {
+        flag = 2;			//纵向相碰
+    } 
+    if(flag == 2 && (Math.abs(r1.x + r1.width - r2.x) <= 6
+      || Math.abs(r1.x - r2.x - r2.width) <= 6))flag = 1;	//横向相碰
+    return flag;
+}
+
+var isArray = function (arrayObj) {
+        return arrayObj && typeof arrayObj === "object" && typeof arrayObj.length === "number" && typeof arrayObj.splice === "function";
+    }
+Array.prototype.each = function (callBack) {
+    for (var m = 0, n = this.length; m < n; m++) {
+        isArray(this[m]) ? this[m].each(callBack) : callBack.call(this, this[m], m);
+    }
+}
+
+function initialize(source, callBack) {		//初始化函数
+    var imagesNum = 0;
+    var count = 0;
+    for (var i in source) {
+        imagesNum++;
+    }
+    for (var img in source) {
+        images[img] = new Image();
+        images[img].onload = function () {
+            if (++count >= imagesNum) {
+                callBack();
+            }
+        }
+        images[img].src = source[img];
+    }
+}
+
+function Obj() {		//物体的抽象
+    this.x = 0;
+    this.y = 0;
+    this.width = 0;
+    this.height = 0;
+    this.skin = null;
+}
+
+function Block() {	//砖块的原型
+    this.kind = 0; //0：木质砖块, 1：土质砖块, 3：铁质砖块, 4：加速砖块, 5：加宽砖块, 6：防护网砖块
+    this.draw = function (ctx) {//绘制砖块
+        ctx.drawImage(this.skin, this.x, this.y, this.width, this.height);
+    };
+};
+
+function Ball(speed, right, bottom) {//小球的原型
+    this.super = 0;
+    this.speed = speed;
+    this.dx = 0;					//小球的加速度
+    this.vx = this.speed / 2;
+    this.vy = this.speed;
+    this.right = right;
+    this.bottom = bottom;
+    this.rad = this.width / 2;
+    this.angle = 0;
+    this.move = function (ctx) {	//按参数移动和重新绘制小球
+        this.vx += this.dx;			//加速度产生作用
+        this.x += this.vx;
+        this.y += this.vy;
+        if (this.x + this.width >= this.right || this.x <= 0) {
+            this.vx *= -1;
+        }
+        if (this.y <= 0) {
+            this.vy *= -1;
+        }
+        ctx.save();					//绘制小球
+        ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+        ctx.rotate(this.angle += this.dx * 10);
+        ctx.drawImage(this.skin, -this.width / 2, -this.height / 2, this.width, this.height);
+        ctx.restore();
+    }
+};
+
+
+function Baffle(speed) {			//挡板的原型
+    this.speed = speed;
+    this.trace = [];
+    this.isLeft = false;
+    this.isRight = false;
+    this.angle = 0;
+    this.move = function (ctx) {	//根据参数移动和绘制挡板
+        this.x += ((this.isLeft * -this.speed) + (this.isRight * this.speed));
+        if (this.x + this.width >= 1047) {
+            this.x = 1047 - this.width;
+        }
+        if (this.x <= 0) {
+            this.x = 0;
+        }
+        ctx.save();					//绘制挡板
+        ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+        ctx.drawImage(this.skin, -this.width / 2, -this.height / 2, this.width, this.height);
+        ctx.restore();
+        if (this.isLeft) this.trace.unshift(-1);
+        else if (this.isRight) this.trace.unshift(1);
+        else this.trace.unshift(0);
+    }
+}
+
+function Score() {					//分数的原型
+    this.value = 0;					//分数的值
+    this.refresh = function (ctx) {	//刷新屏幕上的分数
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.font = '30px 华文琥珀';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText("得分： " + this.value, 900, 580);
+        ctx.restore();
+    }
+}
+
+
+function playMusic(name) {			//根据音乐的名字播放音频
+    var audio = document.createElement("audio");
+    audio.src = "music/" + name;
+    if (name === "bg.mp3") {		//如果是背景音乐则循环播放，否则播放一次
+        audio.addEventListener('ended', function () {
+            // Wait 500 milliseconds before next loop
+            setTimeout(function () {
+                audio.play();
+            }, 500);
+        }, false);
+    }
+    audio.play();					//播放音乐
+}
+
+function process() {				//地图升级的函数
+    if (hit < 5) return 0;			//记5次撞击后升级，计数器归零
+    else {
+        hit = 0;
+        ball.vy += 0.05;			//小球变快
+        baffle.width -= 1;			//挡板变窄
+        for (var bi = 0; bi < blockArray.length; bi++) {	//原砖块下降
+            blockArray[bi].y += blockHeight;
+        }
+        for (var i = 0; i < 12; i++) {	//在顶端随机生成一排新砖块
+            var randIndex = Math.floor(Math.random() * 200);
+            if (randIndex < 120) {
+                var b = new Block();
+                b.x = i * blockWidth + 40;
+                b.y = 20;
+                b.width = blockWidth;
+                b.height = blockHeight;
+                if (randIndex < 1) {
+                    b.skin = images["health"];
+                    b.kind = 6;
+                } else if (randIndex >= 1 && randIndex < 4) {
+                    b.skin = images["wide"];
+                    b.kind = 5;
+                } else if (randIndex >= 4 && randIndex < 7) {
+                    b.skin = images["speed"];
+                    b.kind = 4;
+                } else if (randIndex >= 7 && randIndex < 30) {
+                    b.skin = images["iron"];
+                    b.kind = 3;
+                } else if (randIndex >= 30 && randIndex < 60) {
+                    b.skin = images["brick"];
+                    b.kind = 1;
+                } else {
+                    b.skin = images["block"];
+                    b.kind = 0;
+                }
+                blockArray.push(b);
+            }
+        }
+    }
+}
+
+function main() {		//主函数
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);	//清空并重新绘制图形
+    ctx.drawImage(bg, 0, 0, 1047, 650);				//绘制背景
+    if (isProtected === 1) ctx.drawImage(health, 0, 640, 1047, 10);//绘制防护网
+    process();										//地图升级
+    ball.move(ctx);									//绘制小球
+    baffle.move(ctx);								//绘制挡板
+    score.refresh(ctx);
+    var ballRect = {								//小球坐标值
+        x: ball.x,
+        y: ball.y,
+        width: ball.width,
+        height: ball.height
+    };
+    var baffleRect = {								//挡板坐标值
+        x: baffle.x,
+        y: baffle.y,
+        width: baffle.width,
+        height: baffle.height
+    };
+    for (var bi = blockArray.length - 1; bi >= 0; bi--) {//遍历砖块
+        var blockObj = blockArray[bi]
+        blockObj.draw(ctx);
+	var hitob;
+        if ((hitob = strikeOn(ballRect, {			//如果发生碰撞
+            x: blockObj.x,
+            y: blockObj.y,
+            width: blockObj.width,
+            height: blockObj.height
+        })) > 0) {
+            if (ball.super === 0) {					//如果是普通小球
+		if(hitob === 2){							//如果纵向相碰
+		    ball.vy *= -1;
+		    ball.dx = 0;
+		    ball.vx *= 0.92;
+		    ball.y += ball.vy * 2;
+		} else if (hitob === 1){					//如果横向相碰
+		    ball.vx *= -1;
+		    ball.dx = 0;
+		    ball.x += ball.vx * 2;
+		}
+            } else if (ball.super === 1) {			//如果是超级小球
+                ball.super--;
+                ball.skin = images["ball"];
+                ball.width = 25;
+                ball.height = 25;
+            } else {								//如果是更高级的小球
+                ball.super--;
+            }
+	    
+            if (blockObj.kind === 0) {			//如果是木质砖
+                blockArray.splice(bi, 1);
+                score.value++;
+
+            } else if (blockObj.kind === 1) { //如果是土质砖
+                blockObj.kind = 0;
+                blockObj.skin = images["block"];
+
+            } else if (blockObj.kind === 3) { //如果是铁质砖
+                blockObj.kind = 1;
+                blockObj.skin = images["brick"];
+
+            } else if (blockObj.kind === 4) { //如果是加速砖
+                blockArray.splice(bi, 1);
+                score.value++;
+                if (baffle.speed < 15) baffle.speed++;
+                playMusic("bonus.wav");			//播放获得奖励的音效
+            } else if (blockObj.kind === 5) { //如果是加宽砖
+                blockArray.splice(bi, 1);
+                score.value++;
+                if (baffle.width < 300) baffle.width += 20;
+                playMusic("bonus.wav");
+            } else if (blockObj.kind === 6) { //如果是防护网砖
+                blockArray.splice(bi, 1);
+                score.value++;
+                isProtected = 1;
+                playMusic("bonus.wav");
+            }
+        }
+    }
+    if (strikeOn(ballRect, baffleRect) > 0) {	//发生小球和挡板碰撞
+        hit++;
+        ball.vy *= -1;
+        ball.y -= 15;
+        var i = 0;
+        while (i < 25 && baffle.trace[i] === baffle.trace[0]) {	//根据挡板的轨迹计算小球的横向加速度
+            ball.dx -= baffle.trace[i] * 0.002;
+            i++;
+        }
+        if (Math.abs(ball.dx) > 0.024 && Math.abs(ball.dx) <= 0.4) {//根据小球旋转的快慢决定小球的外型和威力
+            ball.super = 1;
+            ball.skin = images["ballex"];
+        } else if (Math.abs(ball.dx) > 0.4) {
+            ball.super = 2;
+            ball.skin = images["ballex"];
+            ball.width = 40;
+            ball.height = 40;
+        }
+    }
+    if (ball.y > canvasHeight - 10) {		//判断游戏结束
+        if (isProtected === 1) {			//如果有防护网
+            isProtected = 0;
+            ball.vy *= -1;
+            ball.y -= 25;
+        } else {
+            alert("游戏结束."), record(), clearInterval(interval), location.reload(true)//游戏结束，记录分数，上传数据库
+        }
+    }
+
+}
+
+function record() {	//记录用户名、分数，并上传数据库
+    var a = window.prompt("请留下尊姓大名：")//弹出输入框
+    var url = "http://localhost:8080/Highscore/?cmd=new&id=" + a + "&score=" + score.value;//发送http请求
+    var xmlhttp = new XMLHttpRequest();
+    if (xmlhttp != null && a != null) {
+        xmlhttp.onreadystatechange = state_Change;
+        xmlhttp.open("GET", url, false);
+        xmlhttp.send(null);
+    }
+}
+
+
+function getData(url) {//根据url向服务器端发送http请求
+    var xmlhttp = null;
+    xmlhttp = new XMLHttpRequest(); //firefox下执行此语句
+    if (xmlhttp != null) {
+        xmlhttp.onreadystatechange = state_Change;
+
+        xmlhttp.open("GET", url, false);
+        xmlhttp.send(null);//发送http请求
+    } else {
+        alert("Your browser does not support XMLHTTP.");
+    }
+    return xmlhttp.responseText; //获取返回结果字符串 
+}
+
+function state_Change() {//观测http请求的返回状态
+    if (xmlhttp.readyState == 4) { // 4 = "loaded"
+        if (xmlhttp.status == 200) { // 200 = OK
+            // ...our code here...
+            //alert(xmlhttp.responseText);
+        } else {
+            alert(xmlhttp.status);
+            alert("Problem retrieving XML data");
+        }
+    }
+}
+
+function showRank() {//发送http请求获得数据，并显示得分排行榜
+    var scores;
+    this.scores = getData("http://localhost:8080/Highscore/?cmd=list").split(" ");//分割返回的长字符串
+
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    ctx.drawImage(bg, 0, 0, 1047, 650);
+    ctx.fillStyle = "#fff";
+    ctx.font = 'bold 28px 宋体';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    for (var i = 0; i < 20; i++) {
+        ctx.fillText(this.scores[i], 450 + 150 * Math.pow(-1, i + 1), (i - i % 2) * 22 + 150);//将得到数据分布并显示到画布上
+    }
+    ctx.font = 'bold 44px 黑体'
+    ctx.fillText("排行榜", 430, 65);		//显示标题
+}
+
+Block.prototype = new Obj();				//集成Obj
+Ball.prototype = new Obj();
+initialize({								//初始化
+    bg: "images/bg.jpg",					//加载图片
+    block: "images/block.png",
+    ball: "images/ball.png",
+    ballex: "images/ballex.png",
+    brick: "images/brick.png",
+    iron: "images/iron.png",
+    speed: "images/speed.png",
+    wide: "images/wide.png",
+    health: "images/health.png",
+    baffle: "images/baffle.png"
+}, function () {
+    window.onload = function () {			//画布
+        canvas = document.getElementById('stage');
+        ctx = canvas.getContext("2d");
+        canvasWidth = canvas.width;
+        canvasHeight = canvas.height;
+        bg = images["bg"];
+        health = images["health"];
+        
+		score = new Score();				//积分
+        
+		blockWidth = images["block"].width;	//砖块
+        blockHeight = images["block"].height - 10;
+        for (var x1 = 0; x1 < 14; x1++) {
+            for (var x2 = 0; x2 < 12; x2++) {
+                var randIndex = Math.floor(Math.random() * 200);//生成随机数
+                if (randIndex < 120) {
+                    var b = new Block();
+                    b.x = x2 * blockWidth + 40;
+                    b.y = x1 * blockHeight + 20;
+                    b.width = blockWidth;
+                    b.height = blockHeight;
+                    if (randIndex < 1) {		//根据概率生成各种砖块
+                        b.skin = images["health"];
+                        b.kind = 6;
+                    } else if (randIndex >= 1 && randIndex < 4) {
+                        b.skin = images["wide"];
+                        b.kind = 5;
+                    } else if (randIndex >= 4 && randIndex < 7) {
+                        b.skin = images["speed"];
+                        b.kind = 4;
+                    } else if (randIndex >= 7 && randIndex < 30) {
+                        b.skin = images["iron"];
+                        b.kind = 3;
+                    } else if (randIndex >= 30 && randIndex < 60) {
+                        b.skin = images["brick"];
+                        b.kind = 1;
+                    } else {
+                        b.skin = images["block"];
+                        b.kind = 0;
+                    }
+                    blockArray.push(b);			//将砖块加入数组
+                }
+            }
+        }
+        ball = new Ball(2.5, canvasWidth, canvasHeight);	//生成小球
+        ball.skin = images["ball"];							//设置小球图形
+        ball.width = 25;
+        ball.height = 25;
+        ball.x = canvasWidth / 2;
+        ball.y = 400;
+        
+	baffle = new Baffle(5);									//生成挡板
+        baffle.skin = images["baffle"];
+        baffle.width = 100;
+        baffle.height = 20;
+        baffle.x = canvasWidth / 2 - baffle.width / 2;		//挡板初始位置
+        baffle.y = canvasHeight - baffle.height;
+        document.onkeydown = function (evt) {				//接收按键事件，并修改相应参数
+            evt = evt || event;
+            switch (evt.keyCode) {
+            case 37:
+                baffle.isLeft = true;
+                break;
+            case 39:
+                baffle.isRight = true;
+                break; //if this one does not work, cancel it
+            }
+        }
+        document.onkeyup = function (evt) {
+            evt = evt || event;
+            switch (evt.keyCode) {
+            case 37:
+                baffle.isLeft = false;
+                break;
+            case 39:
+                baffle.isRight = false;
+                break;
+            }
+        }
+        trace = document.getElementById('trace');
+        playMusic("bg.mp3");									//播放背景音乐
+        
+	document.getElementById("Button1").onclick = function () {
+            interval = setInterval(main, CONST.FPS);
+            document.getElementById("main").style.display = "none";
+        }
+        
+	document.getElementById("Button2").onclick = function () {
+            showRank();
+            document.getElementById("main").style.display = "none";
+        }
+    }
+})
+        </script>
+    </head>
+    
+    <body>
+        <div id="main">
+            <img src="images/title.png" alt="打砖块" />
+            <a id="Button1">开始游戏</a>
+            <a id="Button2">得分排行</a>
+        </div>
+        <canvas id="stage" width="1047px" height="650px"></canvas>
+    </body>
+
+</html>
